@@ -1,0 +1,21 @@
+body { font-family: Arial, sans-serif; padding: 20px; }
+#results-table {
+    margin-top: 10px;
+    margin-bottom: 20px; /* Padding between table and Give Up button */
+    border-collapse: collapse;
+    width: 80%; /* Constrain table width */
+    max-width: 600px; /* Maximum width for larger screens */
+    background-color: #f9f7fa; /* Soft pastel color */
+}
+#results-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: center;
+}
+.correct { color: green; font-weight: bold; }
+.missed { color: red; font-weight: bold; }
+.empty { color: #aaa; font-style: italic; }
+#status { margin-top: 20px; font-size: 1.2em; }
+#feedback { margin-left: 10px; font-size: 1.2em; }
+#remaining-lives { margin-top: 10px; font-weight: bold; }
+#give-up { margin-bottom: 20px; } /* Padding below the Give Up button */
