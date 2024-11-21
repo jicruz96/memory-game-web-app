@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>'{{ game_title }}' Memory Game</title>
+    <script>
+        let normalize = {{ normalize_func|safe }};
+        document.addEventListener("DOMContentLoaded", () => {
+            // Keep original entries for display and normalize them for checking
+            const entries = JSON.parse('{{ entries|tojson|safe }}');
+            const normalizedEntries = new Map(entries.map(entry => [
+                normalize(entry), entry
+            ]));
+            const guessed = new Set();
+            const remaining = new Set(normalizedEntries.keys());
+            let lives = {{ lives }};
+            
+            const inputBox = document.getElementById("guess");
+            const submitButton = document.getElementById("submit");
+            const resultsTable = document.getElementById("results-table");
+            const statusBox = document.getElementById("status");
+            const giveUpButton = document.getElementById("give-up");
+            const feedbackBox = document.getElementById("feedback");
+            const livesBox = document.getElementById("remaining-lives");
+            const randomGameButton = document.getElementById("random-game");
+
+            const updateLives = () => {
+                livesBox.textContent = `Remaining Lives: ${lives}`;
+                if (lives <= 0) {
+                    statusBox.textContent = "Game Over! You've run out of lives.";
+                    statusBox.style.color = "red";
+
+                    // End the game
+                    inputBox.disabled = true;
+                    submitButton.disabled = true;
+                    giveUpButton.disabled = true;
+                }
+            };
+
+            const populateTable = () => {
+                resultsTable.innerHTML = entries
+                    .map(entry => `<tr><td class="empty"></td></tr>`)
+                    .join("");
+            };
+
+            const updateTable = () => {
+                const rows = resultsTable.querySelectorAll("tr");
+                Array.from(guessed).forEach((guess, index) => {
+                    rows[index].innerHTML = `<td class="correct">${normalizedEntries.get(guess)}</td>`;
+                });
+            };
+
+            const handleGuess = () => {
+                const guess = normalize(inputBox.value);
+                feedbackBox.textContent = ""; // Clear feedback
+                if (remaining.has(guess)) {
+                    guessed.add(guess);
+                    remaining.delete(guess);
+
+                    // Update the table
+                    updateTable();
+
+                    // Check for completion
+                    if (remaining.size === 0) {
+                        statusBox.textContent = "🎉 All correct! Well done!";
+                        statusBox.style.color = "green";
+                        inputBox.disabled = true;
+                        submitButton.disabled = true;
+                        giveUpButton.disabled = true;
+                    }
+                } else {
+                    // Deduct a life for incorrect guess
+                    feedbackBox.textContent = "❌";
+                    feedbackBox.style.color = "red";
+                    lives -= 1;
+                    updateLives();
+                }
+
+                inputBox.value = ""; // Clear the textbox
+            };
+
+            submitButton.addEventListener("click", handleGuess);
+            inputBox.addEventListener("keydown", (event) => {
+                if (event.key === "Enter") {
+                    event.preventDefault();
+                    handleGuess();
+                }
+            });
+
+            giveUpButton.addEventListener("click", () => {
+                statusBox.textContent = "Game Over! You've given up.";
+                statusBox.style.color = "red";
+
+                // Show all remaining entries with the original text
+                const rows = resultsTable.querySelectorAll("tr");
+
+                rows.forEach((row) => {
+                    const td = row.querySelector("td");
+
+                    if (td.classList.contains("empty")) {
+                        // pop from remaining and add it to this row
+                        const missing = Array.from(remaining).pop();
+                        row.innerHTML = `<td class="missed">${normalizedEntries.get(missing)}</td>`;
+                        remaining.delete(missing);
+                    }
+
+                });
+                inputBox.disabled = true;
+                submitButton.disabled = true;
+                giveUpButton.disabled = true;
+            });
+
+            randomGameButton.addEventListener("click", () => {
+                // go to /random
+                window.location.href = "/random";
+            });
+
+            // Initialize lives display and table
+            updateLives();
+            populateTable();
+        });
+    </script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        #results-table {
+            margin-top: 10px;
+            margin-bottom: 20px; /* Padding between table and Give Up button */
+            border-collapse: collapse;
+            width: 80%; /* Constrain table width */
+            max-width: 600px; /* Maximum width for larger screens */
+            background-color: #f9f7fa; /* Soft pastel color */
+        }
+        #results-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: center;
+        }
+        .correct { color: green; font-weight: bold; }
+        .missed { color: red; font-weight: bold; }
+        .empty { color: #aaa; font-style: italic; }
+        #status { margin-top: 20px; font-size: 1.2em; }
+        #feedback { margin-left: 10px; font-size: 1.2em; }
+        #remaining-lives { margin-top: 10px; font-weight: bold; }
+        #give-up { margin-bottom: 20px; } /* Padding below the Give Up button */
+    </style>
+</head>
+<body>
+    <h1>{{ game_title }} Memory Game</h1>
+    <p>Enter items from the list:</p>
+    <div>
+        <input type="text" id="guess" placeholder="Your guess" autocomplete="off">
+        <button id="submit">Submit</button>
+        <span id="feedback"></span>
+    </div>
+    <div id="remaining-lives">Remaining Lives: {{ lives }}</div>
+    <table id="results-table"></table>
+    <button id="give-up">Give Up</button>
+    <div id="status"></div>
+    <button id="random-game">Random Game</button>
+</body>
+</html>
