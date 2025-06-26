@@ -23,11 +23,15 @@
             const resultsTable = document.getElementById("results-table");
             const statusBox = document.getElementById("status");
             const giveUpButton = document.getElementById("give-up");
+            const resetButton = document.getElementById("reset");
             const feedbackBox = document.getElementById("feedback");
             const livesBox = document.getElementById("remaining-lives");
             const startGame = () => {
                 // Clear the table
                 resultsTable.innerHTML = "";
+
+                // clear status statusBox
+                statusBox.textContent = "";
             
                 // Reset game states
                 inputBox.disabled = false;
@@ -122,6 +126,7 @@
             document.getElementById("random-game").addEventListener("click", () => {
                 window.location.href = "/random";
             });
+            resetButton.addEventListener("click", startGame);
 
             startGame();
         });
@@ -138,6 +143,7 @@
     <div id="remaining-lives">Remaining Lives: {{ lives }}</div>
     <table id="results-table"></table>
     <button id="give-up">Give Up</button>
+    <button id="reset">Reset</button>
     <div id="status"></div>
     <button id="random-game">Random Game</button>
 </body>
