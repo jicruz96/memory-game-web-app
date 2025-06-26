@@ -4,11 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="/static/styles.css">
-    <title>'{{ game_title }}' Memory Game</title>
+    <title>{{ game_title }} Memory Game</title>
     <script>
         const answerNormalizer = {{ normalize_func|safe }};
         let remainingLives = {{lives}};
-        const normalizedAnswerToAnswerMap = new Map(JSON.parse('{{ entries|tojson|safe }}').map(ans => [
+        const ENTRIES = {{entries|tojson|safe}};
+        console.log(ENTRIES.length);
+        const normalizedAnswerToAnswerMap = new Map(ENTRIES.map(ans => [
             answerNormalizer(ans), ans
         ]));
         // Keep original entries for display and answerNormalizer them for checking

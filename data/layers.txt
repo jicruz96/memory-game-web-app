@@ -1,0 +1,13 @@
+Census
+Coastal and Marine Features
+Conservation / Recreation
+Cultural Resources
+Environmental Monitoring (testing/monitoring sites)
+Images
+Index (grids/tiling schemes for certain layers)
+Infrastructure
+Physical Resources
+Political / Administrative Boundaries
+Regulated Areas
+Status / Availability (maps showing where data is available or date of data)
+Tiled Layers

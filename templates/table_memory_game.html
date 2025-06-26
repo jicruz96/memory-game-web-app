@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ game_title }} Table Memory Game</title>
+    <style>
+        * { outline: red solid 1px; }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        .toolbar {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #f4f4f4;
+            padding: 10px;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+        }
+        .toolbar label {
+            margin: 0 10px;
+        }
+        .toolbar input {
+            width: 60px;
+            text-align: center;
+        }
+        .table-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        table {
+            width: calc(100% - 40px);
+            border-collapse: collapse;
+            text-align: center;
+            table-layout: fixed;
+        }
+        td {
+            border: 1px solid #ccc;
+            padding: 20px;
+            aspect-ratio: 1 / 1; /* Makes cells square */
+            cursor: pointer;
+            overflow: hidden;
+        }
+        td input {
+            width: 100%;
+            height: 100%;
+            border: none;
+            padding: 0;
+            text-align: center;
+            font-size: inherit;
+            box-sizing: border-box;
+        }
+    </style>
+    <script>
+    const county_normalizer = (text) => text.toLowerCase().replace(/county$/i, '').replace(/\s+/g, ' ').replace(/\(.*\)$/, '').trim();
+    const round_to_two_sigfigs_normalizer = (text) => parseFloat(text).toPrecision(2);
+    const stringNormalizer = (text) => text.toLowerCase().replace(/\s+/g, ' ').replace(/\(.*\)$/, '').trim();
+    // parse the number and round to two significant digits
+    const numberNormalizer = (text) => parseFloat(text).toFixed(2);
+    function makeCellEditable(event, answer, normalizer) {
+        const cell = event.target;
+        const currentValue = cell.textContent.trim();
+
+        // Create an input element for editing
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = currentValue;
+
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === 'Tab') {
+                let submission = input.value.trim();
+
+                let normalizedAnswer = answer;
+                if (normalizer) {
+                    submission = normalizer(submission);
+                    normalizedAnswer = normalizer(answer);
+                }
+                console.log(submission, normalizedAnswer);
+
+                // Check if submission matches the expected answer
+                if (submission === normalizedAnswer) {
+                    cell.textContent = answer;
+                } else {
+                    cell.textContent = currentValue; // Revert to the previous value
+                }
+            } else if (e.key === 'Escape') {
+                cell.textContent = currentValue; // Revert to the previous value
+            }
+        });
+
+        // Clear cell and add input element
+        cell.innerHTML = '';
+        cell.appendChild(input);
+        input.focus();
+    }
+    </script>
+</head>
+<body>
+    <div class="table-container">
+        <table id="dynamic-table">
+            {% if show_headers %}
+            <thead>
+                <tr>
+                    {% for header in table_headers %}
+                    <th>{{ header }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            {% endif %}
+            <tbody>
+                {% for row in table_data %}
+                <tr>
+                    {% for cell in row %}
+                    <td onclick="makeCellEditable(event, '{{ cell.answer }}', eval('{{ cell.submissionNormalizer }}'))">
+                        {# {{ cell }} #}
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>
