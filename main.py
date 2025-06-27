@@ -55,50 +55,47 @@ async def show_available_games() -> HTMLResponse:
 def get_data(text_file_path: str, **kwargs: Any) -> pd.DataFrame:
     df = pd.read_csv(text_file_path, sep="\t")  # type: ignore
 
+    # ------------------------------------------------------------------
+    # Add boolean ancestor columns when a hierarchical “parent” column is present
+    # ------------------------------------------------------------------
+    if "parent" in kwargs:
+        if {"parent", "name"}.issubset(df.columns):
+            # 1. Create one column for every unique parent value (ignoring NaNs)
+            unique_parents = df["parent"].dropna().unique().tolist()
+            for p in unique_parents:
+                # Avoid clashing with existing columns (e.g., numeric data fields)
+                if p not in df.columns:
+                    df[p] = 1_000
+
+            # 2. Build a quick lookup: child name -> immediate parent
+            parent_map = dict(zip(df["name"], df["parent"]))
+
+            # 3. Helper to get the full ancestor chain for a given item
+            def _ancestors(name: str) -> list[str]:
+                chain: list[str] = []
+                while pd.notna(parent_map.get(name)):  # walk up until no parent
+                    name = parent_map[name]
+                    chain.append(name)
+                return chain
+
+            # 4. Mark the ancestor columns for each row
+            for idx, child_name in df["name"].items():
+                for i, ancestor in enumerate(_ancestors(child_name)):
+                    df.at[idx, ancestor] = i
+        parent = kwargs.pop("parent")
+        df = df[df[parent] <= int(kwargs.pop("level", 0))]
+
     # Apply any column‑specific filters passed as keyword arguments
     for k, v in kwargs.items():
-        if k == "parent":
-            continue
         if k not in df.columns:  # type: ignore
             raise HTTPException(status_code=400, detail=f"Invalid parameter {k!r}")
         df = df[df[k] == v]  # type: ignore
 
-    # ------------------------------------------------------------------
-    # Add boolean ancestor columns when a hierarchical “parent” column is present
-    # ------------------------------------------------------------------
-    if {"parent", "name"}.issubset(df.columns):
-        # 1. Create one column for every unique parent value (ignoring NaNs)
-        unique_parents = df["parent"].dropna().unique().tolist()
-        for p in unique_parents:
-            # Avoid clashing with existing columns (e.g., numeric data fields)
-            if p not in df.columns:
-                df[p] = 1_000
-
-        # 2. Build a quick lookup: child name -> immediate parent
-        parent_map = dict(zip(df["name"], df["parent"]))
-
-        # 3. Helper to get the full ancestor chain for a given item
-        def _ancestors(name: str) -> list[str]:
-            chain: list[str] = []
-            while pd.notna(parent_map.get(name)):  # walk up until no parent
-                name = parent_map[name]
-                chain.append(name)
-            return chain
-
-        # 4. Mark the ancestor columns for each row
-        for idx, child_name in df["name"].items():
-            for i, ancestor in enumerate(_ancestors(child_name)):
-                df.at[idx, ancestor] = i
-
-    if "parent" in kwargs:
-        parent = kwargs["parent"]
-        df = df[df[parent] <= kwargs.get("level", 0)]
     return df  # type: ignore
 
 
 @app.get("/play/{text_file_name}")
 async def return_memory_game(request: Request, text_file_name: str) -> HTMLResponse:
-    # file should be in data folder
     text_file_path = os.path.join(os.path.dirname(__file__), "data", text_file_name)
     is_tsv = os.path.exists(text_file_path + ".tsv")
     is_txt = os.path.exists(text_file_path + ".txt")
@@ -115,7 +112,6 @@ async def return_memory_game(request: Request, text_file_name: str) -> HTMLRespo
             entries = [line.strip() for line in f if line.strip()]
     else:
         return HTMLResponse("File not found", status_code=404)
-    print(entries)
     return templates.TemplateResponse(
         "memory_game.html",
         {
