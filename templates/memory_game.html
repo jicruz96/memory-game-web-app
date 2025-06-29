@@ -146,5 +146,29 @@
     <button id="reset">Reset</button>
     <div id="status"></div>
     <button id="random-game">Random Game</button>
+
+{% if select_options %}
+<div>
+    <label for="parent-select">Select Parent(s):</label>
+    <select id="parent-select" multiple>
+        {% for option in select_options %}
+        <option value="{{ option }}">{{ option }}</option>
+        {% endfor %}
+    </select>
+    <button id="parent-submit">Apply Parent Filter</button>
+</div>
+<script>
+    document.getElementById("parent-submit").addEventListener("click", () => {
+        const select = document.getElementById("parent-select");
+        const selected = Array.from(select.selectedOptions).map(opt => opt.value);
+        if (selected.length > 0) {
+            const params = selected.map(p => `parent=${encodeURIComponent(p)}`).join("&");
+            window.location.href = `${window.location.pathname}?${params}`;
+        } else {
+            window.location.href = window.location.pathname;
+        }
+    });
+</script>
+{% endif %}
 </body>
 </html>

@@ -1,10 +1,12 @@
 import json
 import os
 import random
-from typing import Any, Iterable
+from collections import defaultdict
+from functools import lru_cache
+from typing import Annotated, Any, Generator, Iterable
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -20,6 +22,8 @@ COUNTY_NORMALIZER = DEFAULT_NORMALIZER + r".replace(/county$/i, '').trim()"
 GAME_NORMALIZERS = {
     "massachusetts-counties": COUNTY_NORMALIZER,
     "lawrence-org-chart": DEFAULT_NORMALIZER + r".replace(/Department$/i, '').trim()",
+    "lawrence-org-chart-2": DEFAULT_NORMALIZER
+    + r".replace(/Department$/i, '').replace(/\s+and\s+/i, ' & ').trim()",
 }
 TABLE_GAME_NORMALIZERS = {
     "massachusetts-counties": {
@@ -52,38 +56,68 @@ async def show_available_games() -> HTMLResponse:
     return HTMLResponse(f"<h1>Available Games</h1><ul>{'\n'.join(li)}</ul>")
 
 
-def get_data(text_file_path: str, **kwargs: Any) -> pd.DataFrame:
-    df = pd.read_csv(text_file_path, sep="\t")  # type: ignore
-
-    # ------------------------------------------------------------------
+@lru_cache(maxsize=10)
+def load_data(text_file_path: str) -> pd.DataFrame:
+    df = pd.read_csv(text_file_path, sep="\t", keep_default_na=False)  # type: ignore
     # Add boolean ancestor columns when a hierarchical “parent” column is present
     # ------------------------------------------------------------------
-    if "parent" in kwargs:
-        if {"parent", "name"}.issubset(df.columns):
-            # 1. Create one column for every unique parent value (ignoring NaNs)
-            unique_parents = df["parent"].dropna().unique().tolist()
-            for p in unique_parents:
-                # Avoid clashing with existing columns (e.g., numeric data fields)
-                if p not in df.columns:
-                    df[p] = 1_000
+    if {"parent", "name"}.issubset(df.columns):
+        # 1. Create one column for every unique parent value (ignoring NaNs)
+        unique_parents = df["parent"].dropna().unique().tolist()
+        # Assert no parent value exists as a column name
+        assert not any(p in df.columns for p in unique_parents), (
+            "Parent value clashes with existing column"
+        )
+        # Add all ancestor columns at once using pd.concat
+        new_cols = {p: pd.NA for p in unique_parents}
+        df = pd.concat([df, pd.DataFrame(new_cols, index=df.index)], axis=1)
 
-            # 2. Build a quick lookup: child name -> immediate parent
-            parent_map = dict(zip(df["name"], df["parent"]))
+        # 2. Build a quick lookup: child name -> immediate parent
+        parent_map: dict[str, list[str]] = defaultdict(list)
+        for row in df.itertuples():
+            name = row.name
+            if pd.notna(row.parent):
+                parent_map[name].append(row.parent)
 
-            # 3. Helper to get the full ancestor chain for a given item
-            def _ancestors(name: str) -> list[str]:
-                chain: list[str] = []
-                while pd.notna(parent_map.get(name)):  # walk up until no parent
-                    name = parent_map[name]
-                    chain.append(name)
-                return chain
+        # 3. Helper to get the full ancestor chain for a given item
+        def enumerate_ancestors(name: str) -> Generator[tuple[int, str], None, None]:
+            queue: list[tuple[int, list[str]]] = [(0, [name])]
+            seen: set[str] = set()
+            while queue:
+                i, parents = queue.pop()
+                for parent in parents:
+                    if parent in seen:
+                        continue
+                    seen.add(parent)
+                    yield i, parent
+                    queue.append((i + 1, parent_map[parent]))
 
-            # 4. Mark the ancestor columns for each row
-            for idx, child_name in df["name"].items():
-                for i, ancestor in enumerate(_ancestors(child_name)):
-                    df.at[idx, ancestor] = i
-        parent = kwargs.pop("parent")
-        df = df[df[parent] <= int(kwargs.pop("level", 0))]
+        # 4. Mark the ancestor columns for each row
+        for idx, child_name in df["name"].items():
+            for i, ancestor in enumerate_ancestors(child_name):
+                df.loc[idx, ancestor] = i
+
+    return df
+
+
+@lru_cache(maxsize=10)
+def get_data(
+    text_file_path: str,
+    level: int,
+    parent: tuple[str] | None,
+    exclude_parent: tuple[str] | None,
+    **kwargs: Any,
+) -> tuple[pd.DataFrame, list[str] | None]:
+    df = load_data(text_file_path)
+    if "parent" in df.columns:
+        select_options = sorted(df["parent"].dropna().unique().tolist())  # type: ignore
+    else:
+        select_options = None
+    if parent:
+        df = pd.concat([df[(df[p] <= level) & (df["name"] != p)] for p in parent])
+    if exclude_parent:
+        for exc in exclude_parent:
+            df = df[df[exc].isna()]
 
     # Apply any column‑specific filters passed as keyword arguments
     for k, v in kwargs.items():
@@ -91,35 +125,55 @@ def get_data(text_file_path: str, **kwargs: Any) -> pd.DataFrame:
             raise HTTPException(status_code=400, detail=f"Invalid parameter {k!r}")
         df = df[df[k] == v]  # type: ignore
 
-    return df  # type: ignore
+    return df, select_options  # type: ignore
 
 
 @app.get("/play/{text_file_name}")
-async def return_memory_game(request: Request, text_file_name: str) -> HTMLResponse:
+async def return_memory_game(
+    request: Request,
+    text_file_name: str,
+    lives: int = 5,
+    sort: bool = False,
+    level: int = 1,
+    parent: Annotated[list[str] | None, Query()] = None,
+    exclude_parent: Annotated[list[str] | None, Query()] = None,
+) -> HTMLResponse:
     text_file_path = os.path.join(os.path.dirname(__file__), "data", text_file_name)
     is_tsv = os.path.exists(text_file_path + ".tsv")
     is_txt = os.path.exists(text_file_path + ".txt")
     entries: list[str]
     if is_tsv:
         text_file_path += ".tsv"
-        filter_query_params = {
-            k: v for k, v in request.query_params.items() if k != "lives"
-        }
-        entries = get_data(text_file_path, **filter_query_params)["name"].tolist()  # type: ignore
+        df, select_options = get_data(
+            text_file_path,
+            level=level,
+            parent=tuple(parent or []),
+            exclude_parent=tuple(exclude_parent or []),
+        )
+        entries = df["name"].tolist()  # type: ignore
+
     elif is_txt:
         text_file_path += ".txt"
         with open(text_file_path) as f:
             entries = [line.strip() for line in f if line.strip()]
+        select_options = None
     else:
         return HTMLResponse("File not found", status_code=404)
+    if sort:
+        entries = sorted(entries, key=lambda x: x.lower())
+    game_title = _get_game_title_from_filename(text_file_name)
+    if parent:
+        # update game title to include parent values
+        game_title += " (" + ", ".join(parent) + ")"
     return templates.TemplateResponse(
         "memory_game.html",
         {
             "request": request,
             "entries": entries,
-            "game_title": _get_game_title_from_filename(text_file_name),
+            "game_title": game_title,
             "normalize_func": GAME_NORMALIZERS.get(text_file_name, DEFAULT_NORMALIZER),
-            "lives": request.query_params.get("lives", 5),
+            "lives": lives,
+            "select_options": select_options,
         },
     )
 
@@ -129,6 +183,7 @@ async def return_table_memory_game(
     request: Request,
     text_file_name: str,
     exclude: list[str] | None = None,
+    level: int = 1,
 ) -> HTMLResponse:
     text_file_path = os.path.join(
         os.path.dirname(__file__),
@@ -137,10 +192,12 @@ async def return_table_memory_game(
     )
     if not os.path.exists(text_file_path):
         return HTMLResponse("File not found", status_code=404)
-    filter_query_params = {
-        k: v for k, v in request.query_params.items() if k != "exclude"
-    }
-    df = get_data(text_file_path, **filter_query_params)
+    df, _ = get_data(
+        text_file_path,
+        level=level,
+        parent=None,
+        exclude_parent=None,
+    )
     if exclude:
         if "name" in exclude:
             raise HTTPException(status_code=400, detail="Cannot exclude name")
